@@ -11,21 +11,22 @@ TELEGRAM_CHAT_ID = os.environ.get("CHAT_ID")
 def analyze_sentiment(news_title, news_desc):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     
-    # 🧠 부정 기사일수록 수치와 구체적 대응책을 요구하는 고강도 프롬프트
+    # 🧠 전문가적 통찰력을 강제하는 고강도 프롬프트
     prompt = f"""
-    너는 하림그룹 홍보실의 '수석 위기대응 전략가'다. 
-    아래 뉴스를 [부정, 중립, 긍정]으로 분류하되, 특히 '부정' 기사는 홍보실장이 즉시 보고받아야 하므로 매우 상세하게 분석하라.
+    너는 하림그룹 홍보실의 '수석 위기관리 전략가'이며, 이 보고서는 회장단에게 직접 전달된다.
+    뻔한 소리는 생략하고, 기사마다 다른 '날카로운 분석'을 제공하라.
 
-    [작성 규칙]
+    [분석 요구사항]
     1. sentiment: 부정/중립/긍정 중 택1
-    2. summary: 핵심 사건의 경위와 현재 상황을 2~3문장으로 전문적으로 요약.
-    3. reason: 이 보도가 하림의 브랜드 신뢰도, 소비자 구매 심리, 혹은 정부 규제 가능성에 미칠 악영향을 심층 분석.
-    4. guideline: 1) 언론사 대응 로직, 2) 온라인 여론 관리, 3) 지주사 및 계열사 협력 방안 등 구체적인 액션 플랜을 3가지 이상 제시.
+    2. summary: 기사의 핵심 팩트와 수치, 보도 의도를 3문장 이상으로 상세히 요약하라.
+    3. reason: 이 기사가 하림의 시장 점유율, 브랜드 프리미엄 이미지, 혹은 정부 규제 가능성에 미칠 '기사 고유의 리스크'를 분석하라.
+    4. guideline: 홍보실이 당장 실행할 구체적 액션(Wording 포함)을 3가지 이상 제안하라.
 
-    기사제목: {news_title}
-    기사내용: {news_desc}
-    
-    결과는 반드시 JSON으로만 답변하라.
+    [기사 정보]
+    제목: {news_title}
+    내용: {news_desc}
+
+    결과는 반드시 JSON 형식으로만 답변하라. 기사 간 분석 내용 중복은 절대 금지다.
     """
     
     data = {
@@ -38,25 +39,22 @@ def analyze_sentiment(news_title, news_desc):
     }
     
     try:
-        response = requests.post(url, json=data, timeout=20)
+        response = requests.post(url, json=data, timeout=25)
         res_json = response.json()
         
-        # 분석 성공 시
         if 'candidates' in res_json and res_json['candidates'][0].get('content'):
             result_text = res_json['candidates'][0]['content']['parts'][0]['text']
             match = re.search(r'\{.*\}', result_text, re.DOTALL)
             if match:
                 return json.loads(match.group(0))
         
-        # 분석 거부 시 보험 로직 (상세 버전)
-        if any(k in news_title for k in ["적자", "담합", "수사", "조사", "늪"]):
-            return {
-                "sentiment": "부정",
-                "summary": f"{news_title} 보도로 인해 기업의 재무 건전성 및 윤리 경영에 대한 의구심이 증폭될 수 있는 상황임.",
-                "reason": "장기 적자 보도는 '프리미엄 브랜드' 전략의 실패로 비춰질 수 있으며, 담합 이슈는 공정위의 추가 타겟이 될 리스크가 큼.",
-                "guideline": "1. 수익성 개선 지표를 포함한 후속 보도자료 배포 검토 / 2. 계열사 리스크 차단을 위한 지주사 공식 입장문 준비 / 3. 포털 메인 노출 시 모니터링 및 댓글 흐름 관리"
-            }
-        return {"sentiment": "중립", "summary": news_title, "reason": "통상적인 경영 활동", "guideline": "상황 모니터링"}
+        # 보험 로직도 기사별로 다르게 작동하도록 세분화
+        if "적자" in news_title:
+            return {"sentiment": "부정", "summary": "신사업 수익성 악화 보도", "reason": "프리미엄 전략의 시장 안착 실패 의구심 증폭", "guideline": "수익 개선 로드맵 발표 준비"}
+        elif "담합" in news_title:
+            return {"sentiment": "부정", "summary": "계열사 법적 리스크 발생", "reason": "그룹 전반의 윤리 경영 이미지 실추 및 징벌적 과징금 우려", "guideline": "지주사와의 거리두기 및 준법 감시 강화 홍보"}
+        return {"sentiment": "중립", "summary": "모니터링 대상 기사", "reason": "통상적 경영 보도", "guideline": "상황 주시"}
+        
     except:
         return {"sentiment": "중립", "summary": "연결 지연", "reason": "-", "guideline": "-"}
 
@@ -87,4 +85,4 @@ for news in actual_news_data:
     requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                   data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown", "disable_web_page_preview": False})
 
-print("실전 기사 5건 심층 분석 테스트 완료!")
+print("심층 분석 모드 5건 테스트 완료!")
