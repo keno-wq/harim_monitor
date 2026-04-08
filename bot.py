@@ -18,14 +18,14 @@ def analyze_sentiment(news_title, news_desc):
     
     prompt = f"""
     너는 하림그룹 홍보실의 위기관리 AI다. 기사를 분석하여 [부정/중립/긍정]으로 분류하라.
-    특히 '부정'일 경우, 홍보실이 참고할 '대처 가이드라인'을 포함하라.
+    특히 '부정'일 경우, 홍보실이 참고할 구체적인 '대처 가이드라인'을 포함하라.
 
     결과는 반드시 아래 JSON 형식으로만 답변하라:
     {{
       "sentiment": "부정/중립/긍정",
-      "summary": "기사 내용 1줄 요약",
-      "reason": "부정으로 판단한 구체적 이유",
-      "guideline": "홍보실 대응 권고안 (예: 모니터링 강화, 정정 보도 검토 등)"
+      "summary": "기사 내용 1줄 핵심 요약",
+      "reason": "부정으로 판단한 결정적 이유",
+      "guideline": "홍보실 대응 권고안 (예: 반박자료 준비, 커뮤니티 모니터링, 정정보도 검토 등)"
     }}
 
     기사 제목: {news_title}
@@ -39,9 +39,9 @@ def analyze_sentiment(news_title, news_desc):
         match = re.search(r'\{.*\}', result_text, re.DOTALL)
         return json.loads(match.group(0))
     except:
-        return {"sentiment": "중립", "summary": "내용 요약 실패", "reason": "-", "guideline": "-"}
+        return {"sentiment": "중립", "summary": "분석 실패", "reason": "-", "guideline": "-"}
 
-# 1. 네이버 뉴스 검색
+# 1. 네이버 뉴스 검색 (최신 10개)
 encText = urllib.parse.quote("하림")
 url = f"https://openapi.naver.com/v1/search/news?query={encText}&display=10&sort=date"
 request = urllib.request.Request(url)
@@ -64,40 +64,39 @@ try:
         link = news['link']
         if link in sent_links: continue
 
-        # 제목에서 HTML 태그 제거 및 언론사명(네이버 제공 시) 처리
+        # 제목 가공
         title = news['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
-        # 네이버 API는 언론사명을 직접 주지 않지만, 보통 뉴스 링크나 원문에서 추론 가능합니다.
-        # 여기서는 기본적으로 '네이버 뉴스' 혹은 기사 링크를 표시합니다.
         
         # 2. AI 분석
         result = analyze_sentiment(title, news['description'])
         sentiment = result.get('sentiment', '중립')
 
-        # 3. 레이아웃 구성 (기획자님 요청 반영)
+        # 3. 레이아웃 구성 (기획자님 커스텀)
         if sentiment == "부정":
+            # 🚨 부정: 사이렌 + 모든 정보 상세 노출
             msg = f"🚨 **부정 : {title}**\n\n"
             msg += f"🔗 **기사 링크:** {link}\n"
             msg += f"📝 **내용 요약:** {result.get('summary')}\n"
             msg += f"🧐 **판단 이유:** {result.get('reason')}\n"
-            msg += f"🛡️ **대처 가이드:** {result.get('guideline')}\n"
-            msg += f"🏢 **출처:** 네이버 뉴스"
+            msg += f"🛡️ **대처 가이드:** {result.get('guideline')}"
         
         elif sentiment == "긍정":
+            # ✅ 긍정: 이모지 + 제목 + 링크만
             msg = f"✅ **긍정 : {title}**\n"
-            msg += f"🏢 **출처:** 네이버 뉴스\n"
             msg += f"🔗 {link}"
             
-        else: # 중립
+        else:
+            # 💡 중립: 이모지 + 제목 + 링크만
             msg = f"💡 **중립 : {title}**\n"
-            msg += f"🏢 **출처:** 네이버 뉴스\n"
             msg += f"🔗 {link}"
 
-        # 4. 전송
+        # 4. 텔레그램 전송
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                       data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
         
         new_links.append(link)
 
+    # 보낸 링크 저장 (중복 방지)
     with open(SENT_LOG, "a") as f:
         for l in new_links: f.write(l + "\n")
 
