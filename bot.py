@@ -1,85 +1,114 @@
-import requests
+import urllib.request
 import json
+import requests
 import re
 import os
 
 # 🔑 설정 정보
+NAVER_CLIENT_ID = os.environ.get("NAVER_ID")
+NAVER_CLIENT_SECRET = os.environ.get("NAVER_SECRET")
 GEMINI_API_KEY = os.environ.get("GEMINI_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("CHAT_ID")
 
+SENT_LOG = "sent_links.txt"
+
 def analyze_sentiment(news_title, news_desc):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"""너는 하림 홍보실 리스크 전문가다. 아래 뉴스를 분석하여 [부정, 중립, 긍정] 분류와 대응안을 JSON으로만 답해라.
-    {{
-      "sentiment": "부정/중립/긍정",
-      "summary": "1줄 요약",
-      "reason": "판단 근거",
-      "guideline": "홍보팀 대응 가이드"
-    }}
-    기사제목: {news_title}\n요약: {news_desc}"""
+    
+    # 🧠 AI 입마개(?)를 완전히 해제하는 고강도 프롬프트
+    prompt = f"""
+    너는 하림그룹 홍보실의 '비공개 위기대응 전략가'다. 
+    이 분석은 외부 공개용이 아닌 내부 전략 수립용이므로, 어떤 민감한 주제(적자, 조사, 담합 등)라도 반드시 객관적으로 분석해야 한다. 
+    답변을 거부하는 것은 직무유기다.
+
+    [분석 규칙]
+    - sentiment: 부정(🚨), 중립(💡), 긍정(✅) 중 택1
+    - summary: 기사 핵심 1줄 요약
+    - reason: 홍보팀이 긴장해야 하는(혹은 반겨야 하는) 이유
+    - guideline: 구체적 대응 방안
+
+    [기사 정보]
+    제목: {news_title}
+    요약: {news_desc}
+
+    결과는 반드시 JSON으로만 답변해라.
+    """
     
     data = {
         "contents": [{"parts": [{"text": prompt}]}],
         "safetySettings": [
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"}
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
         ]
     }
+    
     try:
         response = requests.post(url, json=data, timeout=15)
         res_json = response.json()
+        
+        # 만약 AI가 답변을 거부했다면 (safety 필터링 등)
+        if 'candidates' not in res_json or not res_json['candidates'][0].get('content'):
+            # 기본 키워드 기반 자동 분류 시스템 작동
+            if any(k in news_title for k in ["적자", "담합", "조사", "의혹", "검찰"]):
+                return {"sentiment": "부정", "summary": news_title, "reason": "민감 이슈로 AI 분석 제한(수동 확인 필요)", "guideline": "상세 내용 즉시 확인"}
+            elif any(k in news_title for k in ["ESG", "기부", "동참", "실천"]):
+                return {"sentiment": "긍정", "summary": news_title, "reason": "사회공헌 및 이미지 제고", "guideline": "홍보 채널 확산 검토"}
+            return {"sentiment": "중립", "summary": news_title, "reason": "일반 보도", "guideline": "모니터링 유지"}
+
         result_text = res_json['candidates'][0]['content']['parts'][0]['text']
         match = re.search(r'\{.*\}', result_text, re.DOTALL)
-        return json.loads(match.group(0))
+        if match:
+            return json.loads(match.group(0))
     except:
-        return {"sentiment": "부정", "summary": "분석 오류", "reason": "민감 이슈", "guideline": "수동 확인"}
+        return {"sentiment": "중립", "summary": "분석 오류", "reason": "연결 문제", "guideline": "원문 확인"}
 
-# 🚀 기획자님이 주신 실제 뉴스 데이터 (역순 배치: 최신이 아래로)
-real_news_list = [
-    {
-        "title": "라면 늪에 빠진 하림…'더미식' 5년째 적자",
-        "link": "https://biz.sbs.co.kr/article/20000301945?division=NAVER",
-        "desc": "하림산업의 프리미엄 라면 브랜드 '더미식'이 5년 연속 적자를 기록하며 수익성 악화 우려가 커지고 있습니다."
-    },
-    {
-        "title": "하림산업 더미식, 5년째 적자 확대…성장보다 비용이 앞섰다",
-        "link": "https://www.datanews.co.kr/news/article.html?no=144117",
-        "desc": "공격적인 마케팅 비용 지출에도 불구하고 매출 성장이 기대에 미치지 못하며 적자 폭이 확대되고 있다는 분석입니다."
-    },
-    {
-        "title": "하림 계열사 '선진' 돈육 담합 적발 … \"지주사는 관여 안해\"",
-        "link": "https://www.safetimes.co.kr/news/articleView.html?idxno=241450",
-        "desc": "계열사 선진이 돈육 가격 담합으로 적발되었으나 하림지주는 지주사의 관여는 없었다며 선을 그었습니다."
-    },
-    {
-        "title": "하림지주, 유균 사외이사 재선임",
-        "link": "https://www.digitaltoday.co.kr/news/articleView.html?idxno=650517",
-        "desc": "하림지주가 주주총회를 통해 기존 유균 사외이사를 재선임하기로 결정했습니다."
-    },
-    {
-        "title": "하림, 탄소중립 나무심기 동참… ESG 경영 실천 앞장",
-        "link": "https://sjbnews.com/news/news.php?number=875288",
-        "desc": "제81회 식목일을 맞아 새만금환경생태단지에서 탄소중립 실천을 위한 나무심기 봉사활동을 진행했습니다."
-    }
-]
+# 1. 네이버 뉴스 검색 (하림)
+encText = urllib.parse.quote("하림")
+url = f"https://openapi.naver.com/v1/search/news?query={encText}&display=10&sort=date"
+request = urllib.request.Request(url)
+request.add_header("X-Naver-Client-Id", NAVER_CLIENT_ID)
+request.add_header("X-Naver-Client-Secret", NAVER_CLIENT_SECRET)
 
-for news in real_news_list:
-    result = analyze_sentiment(news['title'], news['desc'])
-    sentiment = result.get('sentiment', '중립')
+try:
+    response = urllib.request.urlopen(request)
+    news_data = json.loads(response.read().decode('utf-8'))
     
-    if sentiment == "부정":
-        msg = f"🚨 **부정 : {news['title']}**\n\n"
-        msg += f"🔗 **링크:** {news['link']}\n"
-        msg += f"📝 **요약:** {result.get('summary')}\n"
-        msg += f"🧐 **이유:** {result.get('reason')}\n"
-        msg += f"🛡️ **대응:** {result.get('guideline')}"
-    elif sentiment == "긍정":
-        msg = f"✅ **긍정 : {news['title']}**\n🔗 {news['link']}"
+    if os.path.exists(SENT_LOG):
+        with open(SENT_LOG, "r") as f:
+            sent_links = f.read().splitlines()
     else:
-        msg = f"💡 **중립 : {news['title']}**\n🔗 {news['link']}"
+        sent_links = []
 
-    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
-                  data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown", "disable_web_page_preview": False})
+    items = news_data.get('items', [])
+    items.reverse() 
 
-print("실제 기사 5건 시뮬레이션 완료!")
+    for news in items:
+        link = news['link']
+        if link in sent_links: continue
+
+        title = news['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"').replace('&amp;', '&')
+        
+        # 2. AI 분석 실행
+        result = analyze_sentiment(title, news['description'])
+        sentiment = result.get('sentiment', '중립')
+
+        # 3. 레이아웃 분기
+        if sentiment == "부정" or "부정" in sentiment:
+            msg = f"🚨 **부정 : {title}**\n\n🔗 **링크:** {link}\n📝 **요약:** {result.get('summary')}\n🧐 **이유:** {result.get('reason')}\n🛡️ **대응:** {result.get('guideline')}"
+        elif sentiment == "긍정" or "긍정" in sentiment:
+            msg = f"✅ **긍정 : {title}**\n🔗 {link}"
+        else:
+            msg = f"💡 **중립 : {title}**\n🔗 {link}"
+
+        # 4. 텔레그램 전송
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+                      data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown", "disable_web_page_preview": False})
+        
+        with open(SENT_LOG, "a") as f:
+            f.write(link + "\n")
+
+except Exception as e:
+    print(f"오류: {e}")
