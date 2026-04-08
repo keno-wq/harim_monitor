@@ -1,0 +1,30 @@
+name: Harim Monitor Auto Run
+
+on:
+  schedule:
+    - cron: '*/1 * * * *' # 1분마다 실행 (UTC 기준)
+  workflow_dispatch: # 우리가 원할 때 수동으로 버튼 눌러서 실행하는 기능
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Bot
+        env: # 금고(Secrets)에서 열쇠를 꺼내와서 AI에게 전달합니다.
+          NAVER_ID: ${{ secrets.NAVER_ID }}
+          NAVER_SECRET: ${{ secrets.NAVER_SECRET }}
+          GEMINI_KEY: ${{ secrets.GEMINI_KEY }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python bot.py
