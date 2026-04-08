@@ -4,7 +4,7 @@ import requests
 import re
 import os
 
-# 🔑 설정 정보
+# 🔑 설정 정보 (Secrets에서 가져오기)
 NAVER_CLIENT_ID = os.environ.get("NAVER_ID")
 NAVER_CLIENT_SECRET = os.environ.get("NAVER_SECRET")
 GEMINI_API_KEY = os.environ.get("GEMINI_KEY")
@@ -15,7 +15,7 @@ def analyze_sentiment(news_title, news_desc):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     prompt = f"""
     너는 하림그룹 홍보실 AI다. 기사를 [부정/중립/긍정]으로 분류해라.
-    결과는 반드시 JSON으로만: {{"sentiment": "분류", "category": "이슈명", "reason": "이유"}}
+    결과는 반드시 JSON으로만 답변해라.
     기사 제목: {news_title}\n요약: {news_desc}
     """
     data = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -25,9 +25,9 @@ def analyze_sentiment(news_title, news_desc):
         match = re.search(r'\{.*\}', result_text, re.DOTALL)
         return json.loads(match.group(0))
     except:
-        return {"sentiment": "중립", "category": "기타", "reason": "분석 일시 오류"}
+        return {"sentiment": "중립", "reason": "분석 오류"}
 
-# 1. 네이버에서 기사 5개를 넉넉하게 가져옵니다. (동시 발생 대비)
+# 1. 네이버 뉴스 검색 (최신 5개)
 encText = urllib.parse.quote("하림")
 url = f"https://openapi.naver.com/v1/search/news?query={encText}&display=5&sort=date"
 request = urllib.request.Request(url)
@@ -38,25 +38,32 @@ try:
     response = urllib.request.urlopen(request)
     news_data = json.loads(response.read().decode('utf-8'))
     
-    # 2. 가져온 기사들을 하나씩 분석합니다.
     for news in news_data['items']:
         title = news['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
         link = news['link']
         desc = news['description']
 
-        # [참고] 원래는 '이미 보낸 기사인지' 체크하는 DB가 필요하지만,
-        # 지금은 1분마다 실행되므로, 분석 후 텔레그램으로 보냅니다.
-        # (중복 알림이 올 경우 나중에 필터 기능을 추가해 드릴게요!)
-
+        # 2. AI 분석
         result = analyze_sentiment(title, desc)
         sentiment = result.get('sentiment', '중립')
-        emoji = "🚨" if sentiment == "부정" else "💡" if sentiment == "중립" else "✅"
 
-        msg = f"{emoji} **[하림 AI 모니터링: {sentiment}]**\n\n📌 **제목:** {title}\n📂 **분류:** {result.get('category', '기타')}\n📝 **사유:** {result.get('reason', '분석 완료')}\n\n🔗 [기사 원문 보기]({link})"
-        
+        # 3. 레이아웃 분기 처리 (기획자님 요청 사항)
+        if sentiment == "부정":
+            # [부정] 크게, 상세하게 노출
+            msg = f"🚨🚨 **[위기 감지: 부정 기사]** 🚨🚨\n\n"
+            msg += f"🔥 **제목:** {title}\n"
+            msg += f"🚩 **분류:** {result.get('category', '위기이슈')}\n"
+            msg += f"🧐 **분석 사유:** {result.get('reason', '가이드라인 위반 가능성')}\n\n"
+            msg += f"🔗 [지금 바로 원문 확인하기]({link})"
+        else:
+            # [중립/긍정] 콤팩트하게 노출
+            emoji = "✅" if sentiment == "긍정" else "💡"
+            msg = f"{emoji} **[{sentiment}]** {title}\n"
+            msg += f"🔗 [링크]({link})"
+
+        # 4. 전송
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
-                      data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-        print(f"전송 완료: {title[:15]}...")
+                      data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown", "disable_web_page_preview": False})
 
 except Exception as e:
     print(f"오류 발생: {e}")
