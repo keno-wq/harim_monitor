@@ -58,45 +58,41 @@ try:
     else:
         sent_links = []
 
+    # 검색된 아이템들을 역순(오래된 것부터)으로 뒤집습니다.
+    # 그래야 텔레그램 방에는 가장 최신 것이 맨 마지막에 쌓입니다.
+    items = news_data.get('items', [])
+    items.reverse() 
+
     new_links = []
     
-    for news in news_data.get('items', []):
+    for news in items:
         link = news['link']
         if link in sent_links: continue
 
-        # 제목 가공
         title = news['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
         
         # 2. AI 분석
         result = analyze_sentiment(title, news['description'])
         sentiment = result.get('sentiment', '중립')
 
-        # 3. 레이아웃 구성 (기획자님 커스텀)
+        # 3. 레이아웃 구성
         if sentiment == "부정":
-            # 🚨 부정: 사이렌 + 모든 정보 상세 노출
             msg = f"🚨 **부정 : {title}**\n\n"
             msg += f"🔗 **기사 링크:** {link}\n"
             msg += f"📝 **내용 요약:** {result.get('summary')}\n"
             msg += f"🧐 **판단 이유:** {result.get('reason')}\n"
             msg += f"🛡️ **대처 가이드:** {result.get('guideline')}"
-        
         elif sentiment == "긍정":
-            # ✅ 긍정: 이모지 + 제목 + 링크만
-            msg = f"✅ **긍정 : {title}**\n"
-            msg += f"🔗 {link}"
-            
+            msg = f"✅ **긍정 : {title}**\n🔗 {link}"
         else:
-            # 💡 중립: 이모지 + 제목 + 링크만
-            msg = f"💡 **중립 : {title}**\n"
-            msg += f"🔗 {link}"
+            msg = f"💡 **중립 : {title}**\n🔗 {link}"
 
-        # 4. 텔레그램 전송
+        # 4. 전송
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                       data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
         
         new_links.append(link)
 
-    # 보낸 링크 저장 (중복 방지)
     with open(SENT_LOG, "a") as f:
         for l in new_links: f.write(l + "\n")
 
