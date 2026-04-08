@@ -65,7 +65,7 @@ def analyze_sentiment(news_title, news_desc):
         return {"sentiment": "중립", "summary": "연결 오류", "reason": str(e), "guideline": "잠시 후 재시도"}
 
 # 1. 네이버 뉴스 검색 (최신 10개)
-encText = urllib.parse.quote("하림")
+encText = urllib.parse.quote("검찰 수사")
 url = f"https://openapi.naver.com/v1/search/news?query={encText}&display=10&sort=date"
 request = urllib.request.Request(url)
 request.add_header("X-Naver-Client-Id", NAVER_CLIENT_ID)
