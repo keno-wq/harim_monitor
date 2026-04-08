@@ -1,18 +1,12 @@
-import urllib.request
-import json
 import requests
+import json
 import re
 import os
 
 # 설정 정보
-NAVER_CLIENT_ID = os.environ.get("NAVER_ID")
-NAVER_CLIENT_SECRET = os.environ.get("NAVER_SECRET")
 GEMINI_API_KEY = os.environ.get("GEMINI_KEY")
 TELEGRAM_BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("CHAT_ID")
-
-# [핵심] 이미 보낸 기사를 기억하기 위한 임시 파일 (GitHub Actions 환경 전용)
-SENT_FILES_LOG = "sent_links.txt"
 
 def analyze_sentiment(news_title, news_desc):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -26,60 +20,48 @@ def analyze_sentiment(news_title, news_desc):
     except:
         return {"sentiment": "중립", "reason": "분석 실패"}
 
-# 1. 네이버 뉴스 검색
-encText = urllib.parse.quote("하림")
-url = f"https://openapi.naver.com/v1/search/news?query={encText}&display=10&sort=date"
-request = urllib.request.Request(url)
-request.add_header("X-Naver-Client-Id", NAVER_CLIENT_ID)
-request.add_header("X-Naver-Client-Secret", NAVER_CLIENT_SECRET)
+# 🚀 테스트용 가짜 기사 데이터 3종 세트
+test_news = [
+    {
+        "title": "[단독] 하림, 승계 과정서 편법 증여 의혹 제기... 공정위 조사 착수",
+        "link": "https://www.google.com",
+        "desc": "하림그룹의 경영권 승계 과정에서 일감 몰아주기와 편법 증여가 있었다는 의혹이 제기되어 파장이 일고 있습니다."
+    },
+    {
+        "title": "하림, 삼계탕 등 간편식 신제품 3종 출시",
+        "link": "https://www.google.com",
+        "desc": "하림이 여름 성수기를 맞아 집에서 간편하게 즐길 수 있는 보양식 신제품을 선보입니다."
+    },
+    {
+        "title": "하림, 지역 소외계층 위해 닭고기 1,000세트 기부 '훈훈'",
+        "link": "https://www.google.com",
+        "desc": "하림이 전북 지역 어려운 이웃들을 위해 나눔 활동을 펼치며 ESG 경영을 실천하고 있습니다."
+    }
+]
 
-try:
-    response = urllib.request.urlopen(request)
-    news_data = json.loads(response.read().decode('utf-8'))
+for news in test_news:
+    title = news['title']
+    link = news['link']
+    desc = news['desc']
     
-    # 이전에 보낸 링크들 불러오기 (중복 방지용)
-    if os.path.exists(SENT_FILES_LOG):
-        with open(SENT_FILES_LOG, "r") as f:
-            sent_links = f.read().splitlines()
+    # AI 분석
+    result = analyze_sentiment(title, desc)
+    sentiment = result.get('sentiment', '중립')
+
+    # 레이아웃 분기 (기획자님 요청사항 반영)
+    if sentiment == "부정":
+        msg = f"🚨🚨 **[위기 감지: 부정 기사]** 🚨🚨\n\n"
+        msg += f"🔥 **제목:** {title}\n"
+        msg += f"🚩 **분류:** {result.get('category', '위기이슈')}\n"
+        msg += f"🧐 **분석 사유:** {result.get('reason', '가이드라인 위반 감지')}\n\n"
+        msg += f"🔗 [지금 바로 원문 확인하기]({link})"
     else:
-        sent_links = []
+        emoji = "✅" if sentiment == "긍정" else "💡"
+        msg = f"{emoji} **[{sentiment}]** {title}\n"
+        msg += f"🔗 [링크]({link})"
 
-    new_sent_links = []
-    
-    for news in news_data['items']:
-        link = news['link']
-        
-        # [중요] 이미 보낸 링크면 건너뛰기!
-        if link in sent_links:
-            continue
+    # 전송
+    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+                  data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
 
-        title = news['title'].replace('<b>', '').replace('</b>', '').replace('&quot;', '"')
-        desc = news['description']
-        
-        # AI 분석
-        result = analyze_sentiment(title, desc)
-        sentiment = result.get('sentiment', '중립')
-
-        # 레이아웃 분기
-        if sentiment == "부정":
-            msg = f"🚨🚨 **[위기 감지: 부정]** 🚨🚨\n\n🔥 **제목:** {title}\n🧐 **사유:** {result.get('reason','')}\n🔗 [원문보기]({link})"
-        else:
-            emoji = "✅" if sentiment == "긍정" else "💡"
-            msg = f"{emoji} **[{sentiment}]** {title}\n🔗 [링크]({link})"
-
-        # 텔레그램 전송
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
-                      data={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-        
-        new_sent_links.append(link)
-
-    # 새로 보낸 링크 저장 (다음 번 실행 때 중복 방지)
-    with open(SENT_FILES_LOG, "a") as f:
-        for l in new_sent_links:
-            f.write(l + "\n")
-
-    if not new_sent_links:
-        print("새로 올라온 기사가 없어 알림을 보내지 않았습니다.")
-
-except Exception as e:
-    print(f"오류: {e}")
+print("테스트 알림 3종 발송 완료!")
